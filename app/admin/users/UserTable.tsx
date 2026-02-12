@@ -63,7 +63,12 @@ export default function UserTable(props: {
               <tr key={r.id}>
                 <td style={td}>
                   {isEdit ? (
-                    <input value={editNik} onChange={(e) => setEditNik(e.target.value)} style={miniInput} />
+                    <input
+                      value={editNik}
+                      onChange={(e) => setEditNik(e.target.value)}
+                      style={miniInput}
+                      disabled={pending}
+                    />
                   ) : (
                     r.nik
                   )}
@@ -71,7 +76,12 @@ export default function UserTable(props: {
 
                 <td style={td}>
                   {isEdit ? (
-                    <input value={editName} onChange={(e) => setEditName(e.target.value)} style={{ ...miniInput, width: "100%" }} />
+                    <input
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      style={{ ...miniInput, width: "100%" }}
+                      disabled={pending}
+                    />
                   ) : (
                     r.name
                   )}
@@ -79,7 +89,12 @@ export default function UserTable(props: {
 
                 <td style={td}>
                   {isEdit ? (
-                    <select value={editRole} onChange={(e) => setEditRole(e.target.value as Role)} style={miniInput}>
+                    <select
+                      value={editRole}
+                      onChange={(e) => setEditRole(e.target.value as Role)}
+                      style={miniInput}
+                      disabled={pending}
+                    >
                       <option value="TECH">TECH</option>
                       <option value="ADMIN">ADMIN</option>
                     </select>
@@ -92,7 +107,9 @@ export default function UserTable(props: {
                   <span style={pill(r.active)}>{r.active ? "ACTIVE" : "INACTIVE"}</span>
                 </td>
 
-                <td style={td}>{new Date(r.created_at).toLocaleString()}</td>
+                <td style={td}>
+                  {new Date(r.created_at).toLocaleString("id-ID", { hour12: false })}
+                </td>
 
                 <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>
                   {isEdit ? (

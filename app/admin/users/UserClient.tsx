@@ -83,7 +83,13 @@ export default function UserClient({
 
     startTransition(async () => {
       try {
-        await createProfile(fd);
+        const res = await createProfile(fd);
+
+        if (!res?.ok) {
+          setError(res?.message ?? "Gagal tambah user");
+          return;
+        }
+
         setNik("");
         setName("");
         setRole("TECH");
@@ -99,12 +105,18 @@ export default function UserClient({
 
     startTransition(async () => {
       try {
-        await updateProfile({
+        const res = await updateProfile({
           id,
           nik: editNik.trim(),
           name: editName.trim(),
           role: editRole,
         });
+
+        if (!res?.ok) {
+          setError(res?.message ?? "Gagal update user");
+          return;
+        }
+
         cancelEdit();
         await refresh();
       } catch (e: any) {
@@ -118,7 +130,13 @@ export default function UserClient({
 
     startTransition(async () => {
       try {
-        await toggleActive({ id: row.id, active: !row.active });
+        const res = await toggleActive({ id: row.id, active: !row.active });
+
+        if (!res?.ok) {
+          setError(res?.message ?? "Gagal ubah status");
+          return;
+        }
+
         await refresh();
       } catch (e: any) {
         setError(e?.message ?? "Gagal ubah status");
@@ -134,7 +152,13 @@ export default function UserClient({
 
     startTransition(async () => {
       try {
-        await deleteProfile({ id: row.id });
+        const res = await deleteProfile({ id: row.id });
+
+        if (!res?.ok) {
+          setError(res?.message ?? "Gagal hapus user");
+          return;
+        }
+
         await refresh();
       } catch (e: any) {
         setError(e?.message ?? "Gagal hapus user");
@@ -225,7 +249,8 @@ export default function UserClient({
         </div>
 
         <div style={{ marginTop: 10, fontSize: 12, color: "#666" }}>
-          Menampilkan <b>{filteredProfiles.length}</b> dari <b>{profiles.length}</b> user.
+          Menampilkan <b>{filteredProfiles.length}</b> dari{" "}
+          <b>{profiles.length}</b> user.
         </div>
 
         {error && <div style={errorBox}>{error}</div>}

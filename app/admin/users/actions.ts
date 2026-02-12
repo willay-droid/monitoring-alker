@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createAdminClient } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export type ProfileRow = {
   id: string;
@@ -12,8 +12,10 @@ export type ProfileRow = {
   created_at: string;
 };
 
+type ActionResult = { ok: boolean; message: string };
+
 export async function listProfiles(): Promise<ProfileRow[]> {
-  const supabase = createAdminClient();
+  const supabase = supabaseAdmin();
 
   const { data, error } = await supabase
     .from("profiles")
@@ -24,16 +26,16 @@ export async function listProfiles(): Promise<ProfileRow[]> {
   return (data ?? []) as ProfileRow[];
 }
 
-export async function createProfile(formData: FormData) {
-  const supabase = createAdminClient();
+export async function createProfile(formData: FormData): Promise<ActionResult> {
+  const supabase = supabaseAdmin();
 
   const nik = String(formData.get("nik") ?? "").trim();
   const name = String(formData.get("name") ?? "").trim();
   const role = String(formData.get("role") ?? "").trim().toUpperCase();
 
-  if (!nik || !name || !role) throw new Error("Data tidak lengkap");
-  if (!/^\d+$/.test(nik)) throw new Error("NIK harus angka");
-  if (role !== "ADMIN" && role !== "TECH") throw new Error("Role tidak valid");
+  if (!nik || !name || !role) return { ok: false, message: "Data tidak lengkap" };
+  if (!/^\d+$/.test(nik)) return { ok: false, message: "NIK harus angka" };
+  if (role !== "ADMIN" && role !== "TECH") return { ok: false, message: "Role tidak valid" };
 
   const { data: existing, error: existingErr } = await supabase
     .from("profiles")
@@ -41,23 +43,23 @@ export async function createProfile(formData: FormData) {
     .eq("nik", nik)
     .maybeSingle();
 
-  if (existingErr) throw new Error(existingErr.message);
-  if (existing) throw new Error("NIK sudah terdaftar");
+  if (existingErr) return { ok: false, message: existingErr.message };
+  if (existing) return { ok: false, message: "NIK sudah terdaftar" };
 
-  const email = `${nik}@example.com`; // domain valid
+  // bikin email dummy yang valid (supabase butuh email)
+  const email = `${nik}@example.com`;
   const password = crypto.randomUUID();
 
-  const { data: created, error: createUserErr } =
-    await supabase.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-    });
+  const { data: created, error: createUserErr } = await supabase.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+  });
 
-  if (createUserErr) throw new Error(`createUser failed: ${createUserErr.message}`);
+  if (createUserErr) return { ok: false, message: `createUser failed: ${createUserErr.message}` };
 
   const userId = created.user?.id;
-  if (!userId) throw new Error("Auth user gagal dibuat (user.id kosong)");
+  if (!userId) return { ok: false, message: "Auth user gagal dibuat (user.id kosong)" };
 
   const { error: insertErr } = await supabase.from("profiles").insert({
     id: userId,
@@ -68,11 +70,13 @@ export async function createProfile(formData: FormData) {
   });
 
   if (insertErr) {
+    // rollback auth user kalau insert profile gagal
     await supabase.auth.admin.deleteUser(userId);
-    throw new Error(insertErr.message);
+    return { ok: false, message: insertErr.message };
   }
 
   revalidatePath("/admin/users");
+  return { ok: true, message: "User berhasil ditambahkan." };
 }
 
 export async function updateProfile(payload: {
@@ -80,13 +84,13 @@ export async function updateProfile(payload: {
   nik: string;
   name: string;
   role: "ADMIN" | "TECH";
-}) {
-  const supabase = createAdminClient();
+}): Promise<ActionResult> {
+  const supabase = supabaseAdmin();
   const { id, nik, name, role } = payload;
 
-  if (!id) throw new Error("ID kosong");
-  if (!nik || !name || !role) throw new Error("Data tidak lengkap");
-  if (!/^\d+$/.test(nik)) throw new Error("NIK harus angka");
+  if (!id) return { ok: false, message: "ID kosong" };
+  if (!nik || !name || !role) return { ok: false, message: "Data tidak lengkap" };
+  if (!/^\d+$/.test(nik)) return { ok: false, message: "NIK harus angka" };
 
   // cek duplikat nik (selain dirinya)
   const { data: dupe, error: dupeErr } = await supabase
@@ -96,49 +100,49 @@ export async function updateProfile(payload: {
     .neq("id", id)
     .maybeSingle();
 
-  if (dupeErr) throw new Error(dupeErr.message);
-  if (dupe) throw new Error("NIK sudah dipakai user lain");
+  if (dupeErr) return { ok: false, message: dupeErr.message };
+  if (dupe) return { ok: false, message: "NIK sudah dipakai user lain" };
 
-  // update email auth biar konsisten (optional tapi bagus)
+  // update email auth biar konsisten (optional)
   const newEmail = `${nik}@example.com`;
   const { error: authUpdErr } = await supabase.auth.admin.updateUserById(id, {
     email: newEmail,
     email_confirm: true,
   });
-  if (authUpdErr) throw new Error(`update auth user gagal: ${authUpdErr.message}`);
+  if (authUpdErr) return { ok: false, message: `update auth user gagal: ${authUpdErr.message}` };
 
-  const { error } = await supabase
-    .from("profiles")
-    .update({ nik, name, role })
-    .eq("id", id);
+  const { error } = await supabase.from("profiles").update({ nik, name, role }).eq("id", id);
 
-  if (error) throw new Error(error.message);
+  if (error) return { ok: false, message: error.message };
 
   revalidatePath("/admin/users");
+  return { ok: true, message: "User berhasil diupdate." };
 }
 
-export async function toggleActive(payload: { id: string; active: boolean }) {
-  const supabase = createAdminClient();
+export async function toggleActive(payload: { id: string; active: boolean }): Promise<ActionResult> {
+  const supabase = supabaseAdmin();
   const { id, active } = payload;
 
-  const { error } = await supabase
-    .from("profiles")
-    .update({ active })
-    .eq("id", id);
+  if (!id) return { ok: false, message: "ID kosong" };
 
-  if (error) throw new Error(error.message);
+  const { error } = await supabase.from("profiles").update({ active }).eq("id", id);
+
+  if (error) return { ok: false, message: error.message };
 
   revalidatePath("/admin/users");
+  return { ok: true, message: "Status user berhasil diubah." };
 }
 
-export async function deleteProfile(payload: { id: string }) {
-  const supabase = createAdminClient();
+export async function deleteProfile(payload: { id: string }): Promise<ActionResult> {
+  const supabase = supabaseAdmin();
   const { id } = payload;
 
+  if (!id) return { ok: false, message: "ID kosong" };
+
   // FK profiles.id -> auth.users.id + ON DELETE CASCADE
-  // jadi cukup delete auth user => profiles ikut kehapus
   const { error } = await supabase.auth.admin.deleteUser(id);
-  if (error) throw new Error(error.message);
+  if (error) return { ok: false, message: error.message };
 
   revalidatePath("/admin/users");
+  return { ok: true, message: "User berhasil dihapus." };
 }
