@@ -2,13 +2,13 @@ import "server-only";
 
 import { cookies } from "next/headers";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { createClient as createSupabaseClient, type SupabaseClient } from "@supabase/supabase-js";
 
 /**
- * ✅ createClient(): dipakai page loker/history, dsb
+ * ✅ createClient(): dipakai page loker/history, route handler, dsb
  * Next 16: cookies() itu async -> WAJIB await
  */
-export async function createClient() {
+export async function createClient(): Promise<SupabaseClient> {
   const cookieStore = await cookies();
 
   return createServerClient(
@@ -35,13 +35,13 @@ export async function createClient() {
         },
       },
     }
-  );
+  ) as unknown as SupabaseClient;
 }
 
 /**
- * ✅ createAdminClient(): untuk auth.admin.* & bypass RLS
+ * ✅ createAdminClient(): untuk bypass RLS (service role)
  */
-export function createAdminClient() {
+export function createAdminClient(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
