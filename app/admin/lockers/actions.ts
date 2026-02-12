@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
+type ActionResult = { ok: boolean; message: string };
+
 function pad3(n: number) {
   return String(n).padStart(3, "0");
 }
@@ -15,40 +17,44 @@ function normalizeLockerCodeFromAny(input: string) {
   // kalau pure angka
   if (/^\d{1,3}$/.test(raw)) {
     const num = Number(raw);
-    if (Number.isNaN(num) || num < 1 || num > 999) throw new Error("Nomor locker harus 1–999.");
+    if (!Number.isFinite(num) || num < 1 || num > 999) {
+      throw new Error("Nomor locker harus 1–999.");
+    }
     const n3 = pad3(num);
     return { code: `LOKER-${n3}`, code_norm: n3 };
   }
 
-  // kalau format LOKER-x
+  // kalau format LOKER-x (1-3 digit)
   const m = raw.match(/^LOKER-(\d{1,3})$/);
   if (m) {
     const num = Number(m[1]);
-    if (Number.isNaN(num) || num < 1 || num > 999) throw new Error("Nomor locker harus 1–999.");
+    if (!Number.isFinite(num) || num < 1 || num > 999) {
+      throw new Error("Nomor locker harus 1–999.");
+    }
     const n3 = pad3(num);
     return { code: `LOKER-${n3}`, code_norm: n3 };
   }
 
-  throw new Error("Input tidak valid. Isi nomor 1–999.");
+  throw new Error("Input tidak valid. Isi nomor 1–999 atau format LOKER-001.");
 }
 
 /**
- * CREATE (opsi A): input nomor saja, server generate code & code_norm
+ * CREATE (opsi A): input nomor/kode saja, server generate code & code_norm
  */
-export async function createLocker(formData: FormData) {
+export async function createLocker(formData: FormData): Promise<ActionResult> {
   const lockerNumber = String(formData.get("locker_number") ?? "").trim();
   const name = String(formData.get("name") ?? "").trim();
   const location = String(formData.get("location") ?? "").trim();
 
-  if (!lockerNumber) return { ok: false, message: "Nomor wajib diisi." };
+  if (!lockerNumber) return { ok: false, message: "Nomor/Kode wajib diisi." };
   if (!name) return { ok: false, message: "Nama wajib diisi." };
   if (!location) return { ok: false, message: "Lokasi wajib diisi." };
 
-  let normalized;
+  let normalized: { code: string; code_norm: string };
   try {
     normalized = normalizeLockerCodeFromAny(lockerNumber);
   } catch (e: any) {
-    return { ok: false, message: e?.message ?? "Nomor tidak valid." };
+    return { ok: false, message: e?.message ?? "Nomor/Kode tidak valid." };
   }
 
   const sb = supabaseAdmin();
@@ -88,7 +94,7 @@ export async function createLocker(formData: FormData) {
 /**
  * UPDATE: edit hanya name & location (kode dikunci)
  */
-export async function updateLocker(formData: FormData) {
+export async function updateLocker(formData: FormData): Promise<ActionResult> {
   const code = String(formData.get("originalCode") ?? "").trim().toUpperCase();
   const name = String(formData.get("name") ?? "").trim();
   const location = String(formData.get("location") ?? "").trim();
@@ -103,7 +109,8 @@ export async function updateLocker(formData: FormData) {
   const { error } = await sb
     .from("lockers")
     .update({ name, location, updated_at: now })
-    .eq("code", code);
+    .eq("code", code)
+    .eq("is_active", true);
 
   if (error) return { ok: false, message: error.message };
 
@@ -116,21 +123,22 @@ export async function updateLocker(formData: FormData) {
  * DELETE: soft delete (is_active=false)
  * ditolak kalau masih ada tools aktif dalam locker
  */
-export async function deleteLocker(formData: FormData) {
+export async function deleteLocker(formData: FormData): Promise<ActionResult> {
   const code = String(formData.get("code") ?? "").trim().toUpperCase();
   if (!code) return { ok: false, message: "Kode locker kosong." };
 
   const sb = supabaseAdmin();
 
-  // ambil id locker
+  // ambil id locker (yang aktif)
   const { data: locker, error: lockerErr } = await sb
     .from("lockers")
-    .select("id")
+    .select("id, is_active")
     .eq("code", code)
     .maybeSingle();
 
   if (lockerErr) return { ok: false, message: lockerErr.message };
   if (!locker) return { ok: false, message: "Locker tidak ditemukan." };
+  if (locker.is_active === false) return { ok: false, message: "Locker sudah nonaktif." };
 
   // cek masih ada tools aktif?
   const { count, error: cntErr } = await sb
@@ -144,7 +152,13 @@ export async function deleteLocker(formData: FormData) {
     return { ok: false, message: `Tidak bisa hapus. Masih ada ${count} alat aktif di locker ini.` };
   }
 
-  const { error } = await sb.from("lockers").update({ is_active: false }).eq("id", locker.id);
+  const now = new Date().toISOString();
+
+  const { error } = await sb
+    .from("lockers")
+    .update({ is_active: false, updated_at: now })
+    .eq("id", locker.id);
+
   if (error) return { ok: false, message: error.message };
 
   revalidatePath("/admin/lockers");
