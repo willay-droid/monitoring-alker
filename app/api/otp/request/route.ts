@@ -8,7 +8,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "NIK wajib" }, { status: 400 });
     }
 
-    const supabase = createClient();
+    const supabase = await createClient();
 
     // 1️⃣ Cari profile berdasarkan NIK
     const { data: profile, error: profileError } = await supabase

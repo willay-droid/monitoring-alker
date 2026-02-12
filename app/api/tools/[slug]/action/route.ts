@@ -8,7 +8,7 @@ export async function POST(
   ctx: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const supabase = createClient();
+    const supabase = await createClient();
     const { slug } = await ctx.params;
 
     let body: any;

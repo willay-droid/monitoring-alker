@@ -6,7 +6,7 @@ export async function POST(req: Request) {
     const { nik } = await req.json();
     if (!nik) return NextResponse.json({ error: "NIK wajib" }, { status: 400 });
 
-    const supabase = createClient();
+    const supabase = await createClient();
 
     // Admin only
     const { data: profile, error } = await supabase
