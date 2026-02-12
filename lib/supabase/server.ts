@@ -2,25 +2,28 @@ import "server-only";
 
 import { cookies } from "next/headers";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { createClient as createSupabaseClient, type SupabaseClient } from "@supabase/supabase-js";
 
-// OPTIONAL tapi sangat disaranin kalau kamu punya types supabase
-// pastiin file ini ada (kalau belum ada, skip aja 2 baris ini dan hapus generic Database di bawah)
+// Kalau belum punya types, boleh:
+// - hapus import Database ini
+// - ganti SupabaseClient<Database> jadi SupabaseClient
 import type { Database } from "@/types/supabase";
 
+function mustGetEnv(name: string) {
+  const v = process.env[name];
+  if (!v) throw new Error(`${name} belum di-set`);
+  return v;
+}
+
 /**
- * ✅ createClient(): dipakai page loker/history, route handler, dsb
+ * ✅ createClient(): untuk Server Components / Route Handlers yang butuh session cookies
  * Next 16: cookies() async -> WAJIB await
  */
-export async function createClient(): Promise<SupabaseClient> {
+export async function createClient(): Promise<SupabaseClient<Database>> {
   const cookieStore = await cookies();
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-
-  if (!url) throw new Error("NEXT_PUBLIC_SUPABASE_URL belum di-set");
-  if (!anon) throw new Error("NEXT_PUBLIC_SUPABASE_ANON_KEY belum di-set");
+  const url = mustGetEnv("NEXT_PUBLIC_SUPABASE_URL");
+  const anon = mustGetEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
 
   return createServerClient<Database>(url, anon, {
     cookies: {
@@ -31,12 +34,13 @@ export async function createClient(): Promise<SupabaseClient> {
         try {
           cookieStore.set({ name, value, ...options });
         } catch {
-          // beberapa konteks Server Component: cookies read-only
+          // Server Component bisa read-only cookie store (normal)
         }
       },
       remove(name: string, options: CookieOptions) {
         try {
-          cookieStore.set({ name, value: "", ...options });
+          // pastikan cookie kehapus
+          cookieStore.set({ name, value: "", ...options, maxAge: 0 });
         } catch {
           // read-only context
         }
@@ -46,16 +50,13 @@ export async function createClient(): Promise<SupabaseClient> {
 }
 
 /**
- * ✅ createAdminClient(): untuk bypass RLS (service role)
+ * ✅ createAdminClient(): bypass RLS (service role) — JANGAN dipakai di client component
  */
-export function createAdminClient(): SupabaseClient {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+export function createAdminClient(): SupabaseClient<Database> {
+  const url = mustGetEnv("NEXT_PUBLIC_SUPABASE_URL");
+  const serviceKey = mustGetEnv("SUPABASE_SERVICE_ROLE_KEY");
 
-  if (!url) throw new Error("NEXT_PUBLIC_SUPABASE_URL belum di-set");
-  if (!serviceKey) throw new Error("SUPABASE_SERVICE_ROLE_KEY belum di-set");
-
-  return createSupabaseClient(url, serviceKey, {
+  return createSupabaseClient<Database>(url, serviceKey, {
     auth: { persistSession: false },
   });
 }

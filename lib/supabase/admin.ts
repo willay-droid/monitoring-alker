@@ -1,15 +1,28 @@
-import { createClient } from "@supabase/supabase-js";
+import "server-only";
 
-export function supabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/types/supabase"; // kalau belum punya, boleh hapus generic
 
-  if (!url || !serviceRoleKey) {
-    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
-  }
-
-  return createClient(url, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+function mustGetEnv(name: string) {
+  const v = process.env[name];
+  if (!v) throw new Error(`${name} belum di-set`);
+  return v;
 }
 
+/**
+ * ✅ Supabase Admin Client (Service Role)
+ * - Bypass RLS
+ * - HANYA untuk server-side
+ * - Jangan pernah dipakai di client component
+ */
+export function supabaseAdmin(): SupabaseClient<Database> {
+  const url = mustGetEnv("NEXT_PUBLIC_SUPABASE_URL");
+  const serviceRoleKey = mustGetEnv("SUPABASE_SERVICE_ROLE_KEY");
+
+  return createClient<Database>(url, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
