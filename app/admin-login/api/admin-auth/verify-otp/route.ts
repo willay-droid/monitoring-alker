@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import crypto from "crypto";
 
-function sha256(input: string) {
-  return crypto.createHash("sha256").update(input).digest("hex");
+function sign(payloadB64: string, secret: string) {
+  return crypto.createHmac("sha256", secret).update(payloadB64).digest("hex");
 }
 
 export async function POST(req: Request) {
@@ -13,7 +13,6 @@ export async function POST(req: Request) {
 
     const supabase = await createClient();
 
-    // Ambil admin
     const { data: profile } = await supabase
       .from("profiles")
       .select("id, role, is_active")
@@ -23,7 +22,6 @@ export async function POST(req: Request) {
     if (!profile || !profile.is_active) return NextResponse.json({ error: "User tidak valid" }, { status: 403 });
     if (profile.role !== "ADMIN") return NextResponse.json({ error: "Bukan admin" }, { status: 403 });
 
-    // Validasi OTP terbaru yang belum dipakai & belum expired
     const { data: otpRow } = await supabase
       .from("telegram_otps")
       .select("id, expired_at, is_used")
@@ -37,31 +35,30 @@ export async function POST(req: Request) {
 
     if (!otpRow) return NextResponse.json({ error: "OTP salah / expired" }, { status: 400 });
 
-    // Tandai OTP used
     await supabase.from("telegram_otps").update({ is_used: true }).eq("id", otpRow.id);
 
-    // Buat session token random -> simpan hash-nya aja ke DB
-    const sessionToken = crypto.randomBytes(32).toString("hex");
-    const sessionTokenHash = sha256(sessionToken);
+    const secret = process.env.ADMIN_SESSION_SECRET;
+    if (!secret) return NextResponse.json({ error: "ADMIN_SESSION_SECRET belum diset" }, { status: 500 });
 
-    const expiredAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 hari
+    const payload = {
+      nik,
+      role: "ADMIN",
+      iat: Date.now(),
+      exp: Date.now() + 7 * 24 * 60 * 60 * 1000, // 7 hari
+    };
 
-    const { error: sessErr } = await supabase.from("telegram_sessions").insert({
-      profile_id: profile.id,
-      session_token_hash: sessionTokenHash,
-      expired_at: expiredAt.toISOString(),
-    });
+    const payloadB64 = Buffer.from(JSON.stringify(payload)).toString("base64url");
+    const sigHex = sign(payloadB64, secret);
+    const cookieValue = `${payloadB64}.${sigHex}`;
 
-    if (sessErr) return NextResponse.json({ error: "Gagal buat session" }, { status: 500 });
+    const res = NextResponse.json({ success: true, redirect: "/admin" });
 
-    // Set cookie httpOnly
-    const res = NextResponse.json({ success: true });
-    res.cookies.set("admin_session", sessionToken, {
+    res.cookies.set("admin_session", cookieValue, {
       httpOnly: true,
       secure: true,
       sameSite: "lax",
       path: "/",
-      expires: expiredAt,
+      maxAge: 7 * 24 * 60 * 60,
     });
 
     return res;
