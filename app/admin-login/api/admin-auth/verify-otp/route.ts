@@ -11,7 +11,7 @@ export async function POST(req: Request) {
     const { nik, otp } = await req.json();
     if (!nik || !otp) return NextResponse.json({ error: "NIK & OTP wajib" }, { status: 400 });
 
-    const supabase = createClient();
+    const supabase = await createClient();
 
     // Ambil admin
     const { data: profile } = await supabase
