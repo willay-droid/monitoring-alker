@@ -15,10 +15,17 @@ export async function POST(req: Request) {
       .eq("nik", nik)
       .single();
 
-    if (error || !profile) return NextResponse.json({ error: "User tidak ditemukan" }, { status: 400 });
-    if (!profile.is_active) return NextResponse.json({ error: "User nonaktif" }, { status: 403 });
-    if (profile.role !== "ADMIN") return NextResponse.json({ error: "Bukan admin" }, { status: 403 });
-    if (!profile.telegram_user_id) return NextResponse.json({ error: "Admin belum connect Telegram" }, { status: 400 });
+    if (error || !profile)
+      return NextResponse.json({ error: "User tidak ditemukan" }, { status: 400 });
+
+    if (!profile.is_active)
+      return NextResponse.json({ error: "User nonaktif" }, { status: 403 });
+
+    if (profile.role !== "ADMIN")
+      return NextResponse.json({ error: "Bukan admin" }, { status: 403 });
+
+    if (!profile.telegram_user_id)
+      return NextResponse.json({ error: "Admin belum connect Telegram" }, { status: 400 });
 
     // OTP 6 digit
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -33,7 +40,11 @@ export async function POST(req: Request) {
     if (insErr) return NextResponse.json({ error: "Gagal buat OTP" }, { status: 500 });
 
     // Kirim ke Telegram
-    const tg = await fetch(`https://api.telegram.org/bot${process.env.8367886171:AAEIaOcQ5Dp0Q6i4Pa8jbB3jl7aWXse8d3Q}/sendMessage`, {
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    if (!botToken)
+      return NextResponse.json({ error: "TELEGRAM_BOT_TOKEN belum diset" }, { status: 500 });
+
+    const tg = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

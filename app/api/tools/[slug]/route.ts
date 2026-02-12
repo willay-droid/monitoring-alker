@@ -1,13 +1,14 @@
-	import { NextResponse } from "next/server";
-import { supabaseServer } from "../../../../lib/supabase/server";
+import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 
 export async function GET(
   req: Request,
   ctx: { params: Promise<{ slug: string }> }
 ) {
+  const supabase = createClient();
   const { slug } = await ctx.params;
 
-  const { data: tool, error } = await supabaseServer
+  const { data: tool, error } = await supabase
     .from("tools")
     .select("*")
     .eq("qr_code", slug)
@@ -17,17 +18,15 @@ export async function GET(
     return NextResponse.json({ error: "Tool not found" }, { status: 404 });
   }
 
-  const { data: history, error: hErr } = await supabaseServer
+  const { data: history, error: hErr } = await supabase
     .from("tool_events")
-    .select("id,event_time,event_type,nik,note,condition,sto_code") // ✅ tambah id
+    .select("id,event_time,event_type,nik,note,condition,sto_code")
     .eq("tool_id", tool.id)
     .order("event_time", { ascending: false })
     .limit(20);
 
-  if (hErr) {
-    // masih balikin tool minimal biar UI gak crash
-    return NextResponse.json({ tool, history: [] });
-  }
-
-  return NextResponse.json({ tool, history: history ?? [] });
+  return NextResponse.json({
+    tool,
+    history: hErr ? [] : history ?? [],
+  });
 }

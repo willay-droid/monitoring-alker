@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabaseServer } from "../../../../../lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 
 type Action = "CHECKOUT" | "CHECKIN" | "REPORT_DAMAGED" | "MARK_FIXED";
 
@@ -8,16 +8,8 @@ export async function POST(
   ctx: { params: Promise<{ slug: string }> }
 ) {
   try {
+    const supabase = createClient();
     const { slug } = await ctx.params;
-
-    // guard supabase
-    if (!supabaseServer || typeof (supabaseServer as any).from !== "function") {
-      console.error("supabaseServer is not initialized");
-      return NextResponse.json(
-        { error: "supabaseServer not initialized" },
-        { status: 500 }
-      );
-    }
 
     let body: any;
     try {
@@ -37,8 +29,7 @@ export async function POST(
       return NextResponse.json({ error: "NIK is required" }, { status: 400 });
     }
 
-    // ambil tool by qr_code
-    const { data: tool, error: tErr } = await supabaseServer
+    const { data: tool, error: tErr } = await supabase
       .from("tools")
       .select("*")
       .eq("qr_code", slug)
@@ -48,7 +39,6 @@ export async function POST(
       return NextResponse.json({ error: "Tool not found" }, { status: 404 });
     }
 
-    // rules sederhana
     if (action === "CHECKOUT" && tool.status !== "AVAILABLE")
       return NextResponse.json({ error: "Tool not available" }, { status: 409 });
 
@@ -63,7 +53,6 @@ export async function POST(
 
     const now = new Date().toISOString();
 
-    // next state
     let nextStatus = tool.status as string;
     let holderNik: string | null = tool.current_holder_nik ?? null;
 
@@ -80,46 +69,37 @@ export async function POST(
       holderNik = null;
     }
 
-    // ⚠️ INSERT EVENT: mulai dari yang "pasti ada" dulu
-    // Kalau tabel lo punya kolom tambahan (condition/sto_code/event_time), nanti kita tambah lagi.
-    const eventPayload: any = {
+    const { error: eErr } = await supabase.from("tool_events").insert({
       tool_id: tool.id,
       event_type: action,
       nik,
       note: action === "REPORT_DAMAGED" ? note : null,
-      event_time: now, // kalau kolom ini gak ada, nanti error-nya kebaca jelas
-    };
+      event_time: now,
+    });
 
-    const { error: eErr } = await supabaseServer.from("tool_events").insert(eventPayload);
     if (eErr) {
-      console.error("INSERT tool_events error:", eErr);
       return NextResponse.json({ error: eErr.message }, { status: 500 });
     }
 
-    // UPDATE TOOLS: juga mulai yang aman
-    const updatePayload: any = {
-      status: nextStatus,
-      current_holder_nik: holderNik,
-      last_event_at: now, // kalau gak ada, error kebaca jelas
-    };
-
-    const { error: uErr, data: updated } = await supabaseServer
+    const { error: uErr, data: updated } = await supabase
       .from("tools")
-      .update(updatePayload)
+      .update({
+        status: nextStatus,
+        current_holder_nik: holderNik,
+        last_event_at: now,
+      })
       .eq("id", tool.id)
       .select("*")
       .single();
 
     if (uErr) {
-      console.error("UPDATE tools error:", uErr);
       return NextResponse.json({ error: uErr.message }, { status: 500 });
     }
 
     return NextResponse.json({ ok: true, tool: updated });
   } catch (err: any) {
-    console.error("ACTION_ROUTE_FATAL:", err);
     return NextResponse.json(
-      { error: err?.message ?? String(err) ?? "Internal server error" },
+      { error: err?.message ?? "Internal server error" },
       { status: 500 }
     );
   }
