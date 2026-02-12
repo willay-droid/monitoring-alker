@@ -2,8 +2,32 @@ import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
 
 type PageProps = {
-  params: Promise<{ code: string }>;
-  searchParams?: Promise<{ nik?: string }>;
+  params: { code: string };
+  searchParams?: { nik?: string };
+};
+
+type LockerRow = {
+  id: string;
+  code: string;
+  name: string | null;
+  location: string | null;
+  status: string | null;
+  status_updated_at: string | null;
+  code_norm: string | null;
+};
+
+type LockerHistoryRow = {
+  session_id: string | number;
+  session_type: string; // "CHECKOUT" | "CHECKIN" dst
+  nik_actor: string | null;
+  event_at: string | null;
+
+  pair_checkout_id: string | number | null;
+  checkout_nik: string | null;
+  checkout_at: string | null;
+
+  duration: string | null;
+  is_open_checkout: boolean | null;
 };
 
 function getSupabaseServer() {
@@ -33,22 +57,22 @@ function normalizeLockerCode(input: string) {
 export default async function LockerHistoryPage(props: PageProps) {
   const supabase = getSupabaseServer();
 
-  const { code } = await props.params;
-  const sp = (await props.searchParams) ?? {};
+  const { code } = props.params;
+  const sp = props.searchParams ?? {};
   const nikFilter = (sp.nik ?? "").trim();
 
   const rawCode = decodeURIComponent(code);
   const norm = normalizeLockerCode(rawCode);
 
   // 1) Cari locker (code / normalized / code_norm)
-  const { data: locker, error: lockerErr } = await supabase
+  const { data: lockerData, error: lockerErr } = await supabase
     .from("lockers")
     .select("id, code, name, location, status, status_updated_at, code_norm")
-    .or(
-      `code.eq.${rawCode},code.eq.${norm.code},code_norm.eq.${norm.code_norm ?? ""}`
-    )
+    .or(`code.eq.${rawCode},code.eq.${norm.code},code_norm.eq.${norm.code_norm ?? ""}`)
     .limit(1)
     .maybeSingle();
+
+  const locker = lockerData as LockerRow | null;
 
   if (lockerErr || !locker) {
     return (
@@ -63,6 +87,9 @@ export default async function LockerHistoryPage(props: PageProps) {
         <div style={{ marginTop: 10 }}>
           <Link href="/">Kembali</Link>
         </div>
+        {lockerErr ? (
+          <div style={{ marginTop: 10, color: "tomato" }}>Error: {lockerErr.message}</div>
+        ) : null}
       </div>
     );
   }
@@ -91,7 +118,10 @@ export default async function LockerHistoryPage(props: PageProps) {
     q = q.or(`nik_actor.ilike.%${nikFilter}%,checkout_nik.ilike.%${nikFilter}%`);
   }
 
-  const { data: history, error: histErr } = await q;
+  const { data: historyData, error: histErr } = await q;
+
+  // ✅ KUNCI: pastiin history itu array of row (bukan type error)
+  const history: LockerHistoryRow[] = (historyData ?? []) as unknown as LockerHistoryRow[];
 
   return (
     <div
@@ -106,11 +136,9 @@ export default async function LockerHistoryPage(props: PageProps) {
       <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
         <div>
           <h1 style={{ margin: 0 }}>
-            History {locker.code} — {locker.name}
+            History {locker.code} — {locker.name ?? "-"}
           </h1>
-          <div style={{ opacity: 0.8, marginTop: 6 }}>
-            {locker.location ?? "-"}
-          </div>
+          <div style={{ opacity: 0.8, marginTop: 6 }}>{locker.location ?? "-"}</div>
           <div style={{ marginTop: 10 }}>
             <Link href={`/loker/${encodeURIComponent(rawCode)}`}>
               ← Kembali ke halaman teknisi
@@ -128,7 +156,7 @@ export default async function LockerHistoryPage(props: PageProps) {
               fontWeight: 800,
             }}
           >
-            {locker.status}
+            {locker.status ?? "-"}
           </div>
           <div style={{ opacity: 0.7, marginTop: 6, fontSize: 12 }}>
             updated: {fmt(locker.status_updated_at)}
@@ -220,11 +248,14 @@ export default async function LockerHistoryPage(props: PageProps) {
             </tr>
           </thead>
           <tbody>
-            {(history ?? []).map((r) => (
-              <tr key={r.session_id} style={{ borderBottom: "1px solid #1a1a1a" }}>
+            {history.map((r, idx) => (
+              <tr
+                key={String(r.session_id ?? `${r.event_at ?? "x"}-${idx}`)}
+                style={{ borderBottom: "1px solid #1a1a1a" }}
+              >
                 <td style={{ padding: 12, whiteSpace: "nowrap" }}>{fmt(r.event_at)}</td>
                 <td style={{ padding: 12, fontWeight: 900 }}>{r.session_type}</td>
-                <td style={{ padding: 12 }}>{r.nik_actor}</td>
+                <td style={{ padding: 12 }}>{r.nik_actor ?? "-"}</td>
 
                 <td style={{ padding: 12 }}>
                   {r.session_type === "CHECKIN" ? (
@@ -249,12 +280,16 @@ export default async function LockerHistoryPage(props: PageProps) {
                 </td>
 
                 <td style={{ padding: 12 }}>
-                  {r.session_type === "CHECKOUT" ? (r.is_open_checkout ? "✅ OPEN" : "—") : "—"}
+                  {r.session_type === "CHECKOUT"
+                    ? r.is_open_checkout
+                      ? "✅ OPEN"
+                      : "—"
+                    : "—"}
                 </td>
               </tr>
             ))}
 
-            {(history ?? []).length === 0 ? (
+            {history.length === 0 ? (
               <tr>
                 <td colSpan={6} style={{ padding: 16, opacity: 0.8 }}>
                   Tidak ada history (atau filter NIK tidak cocok).
