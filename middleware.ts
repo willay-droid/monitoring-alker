@@ -17,7 +17,7 @@ async function verifyAdminSessionCookieSigned(value: string, secret: string) {
     enc.encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
-    ["sign"]
+    ["sign"],
   );
 
   const mac = await crypto.subtle.sign("HMAC", key, enc.encode(payloadB64));
@@ -88,8 +88,10 @@ async function verifyAdminSessionCookieDb(token: string) {
 async function verifyAnyAdminSession(cookieVal: string) {
   if (!cookieVal) return false;
 
-  if (secret && cookieVal.includes(".")) {
+  // Deklarasi dipindah ke ATAS sebelum pengecekan IF
   const secret = process.env.ADMIN_SESSION_SECRET || "";
+
+  if (secret && cookieVal.includes(".")) {
     const ok = await verifyAdminSessionCookieSigned(cookieVal, secret);
     if (ok) return true;
   }
@@ -116,21 +118,30 @@ export async function middleware(req: NextRequest) {
     const vercelToken = process.env.VERCEL_ACCESS_TOKEN;
 
     if (edgeConfigId && vercelToken) {
-      const response = await fetch(`https://api.vercel.com/v1/edge-config/${edgeConfigId}/items`, {
-        headers: {
-          Authorization: `Bearer ${vercelToken}`,
+      const response = await fetch(
+        `https://api.vercel.com/v1/edge-config/${edgeConfigId}/items`,
+        {
+          headers: {
+            Authorization: `Bearer ${vercelToken}`,
+          },
+          cache: "no-store",
         },
-        cache: 'no-store' 
-      });
+      );
 
       if (response.ok) {
         const data = await response.json();
-        
+
         // Cari status khusus untuk Monitoring Alker
-        const alkerItem = data.find((item: any) => item.key === 'maintenance_alker');
-        
-        if (alkerItem && (alkerItem.value === true || alkerItem.value === 'true')) {
-          return new NextResponse(`
+        const alkerItem = data.find(
+          (item: any) => item.key === "maintenance_alker",
+        );
+
+        if (
+          alkerItem &&
+          (alkerItem.value === true || alkerItem.value === "true")
+        ) {
+          return new NextResponse(
+            `
             <!DOCTYPE html>
             <html>
               <head>
@@ -145,10 +156,12 @@ export async function middleware(req: NextRequest) {
                 </div>
               </body>
             </html>
-          `, { 
-            status: 503,
-            headers: { 'Content-Type': 'text/html; charset=utf-8' }
-          });
+          `,
+            {
+              status: 503,
+              headers: { "Content-Type": "text/html; charset=utf-8" },
+            },
+          );
         }
       }
     }
