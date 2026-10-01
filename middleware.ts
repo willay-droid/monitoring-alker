@@ -1,4 +1,3 @@
-// middleware.ts
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
@@ -9,7 +8,6 @@ function base64UrlDecodeToString(b64url: string) {
 }
 
 async function verifyAdminSessionCookieSigned(value: string, secret: string) {
-  // format: payloadB64.sigHex
   const [payloadB64, sigHex] = value.split(".");
   if (!payloadB64 || !sigHex) return false;
 
@@ -52,7 +50,6 @@ async function sha256Hex(input: string) {
 }
 
 async function verifyAdminSessionCookieDb(token: string) {
-  // token ini versi baru: random hex tanpa "."
   const urlBase = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
   if (!urlBase || !serviceKey) return false;
@@ -60,14 +57,6 @@ async function verifyAdminSessionCookieDb(token: string) {
   const tokenHash = await sha256Hex(token);
   const nowIso = new Date().toISOString();
 
-  // NOTE:
-  // Pastikan tabel telegram_sessions punya:
-  // - session_token_hash (text)
-  // - expired_at (timestamptz)
-  // - revoked_at (timestamptz nullable)
-  // - profile_id (uuid FK -> profiles)
-  //
-  // dan profiles punya role/is_active
   const restUrl =
     `${urlBase}/rest/v1/telegram_sessions` +
     `?select=id,expired_at,revoked_at,profiles:profile_id(role,is_active)` +
@@ -99,14 +88,12 @@ async function verifyAdminSessionCookieDb(token: string) {
 async function verifyAnyAdminSession(cookieVal: string) {
   if (!cookieVal) return false;
 
-  // 1) Coba verifikasi versi lama (signed payload.sig)
-  const secret = process.env.ADMIN_SESSION_SECRET || "";
   if (secret && cookieVal.includes(".")) {
+  const secret = process.env.ADMIN_SESSION_SECRET || "";
     const ok = await verifyAdminSessionCookieSigned(cookieVal, secret);
     if (ok) return true;
   }
 
-  // 2) Coba verifikasi versi baru (token random -> cek DB)
   if (!cookieVal.includes(".")) {
     const ok = await verifyAdminSessionCookieDb(cookieVal);
     if (ok) return true;
@@ -120,6 +107,56 @@ export async function middleware(req: NextRequest) {
 
   // ✅ BYPASS API ROUTES
   if (pathname.startsWith("/api")) return NextResponse.next();
+
+  // =========================================================================
+  // 🔥 BLOK PENGECEKAN MAINTENANCE (CENTRAL COMMAND) 🔥
+  // =========================================================================
+  try {
+    const edgeConfigId = process.env.EDGE_CONFIG_ID;
+    const vercelToken = process.env.VERCEL_ACCESS_TOKEN;
+
+    if (edgeConfigId && vercelToken) {
+      const response = await fetch(`https://api.vercel.com/v1/edge-config/${edgeConfigId}/items`, {
+        headers: {
+          Authorization: `Bearer ${vercelToken}`,
+        },
+        cache: 'no-store' 
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        
+        // Cari status khusus untuk Monitoring Alker
+        const alkerItem = data.find((item: any) => item.key === 'maintenance_alker');
+        
+        if (alkerItem && (alkerItem.value === true || alkerItem.value === 'true')) {
+          return new NextResponse(`
+            <!DOCTYPE html>
+            <html>
+              <head>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <title>Maintenance - Monitoring Alker</title>
+              </head>
+              <body style="display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif; text-align:center; background-color:#111827; margin:0; overflow:hidden;">
+                <div style="padding: 1rem; max-width: 85%;">
+                  <h1 style="font-size:1.2rem; color:#f9fafb; margin-bottom: 0.5rem; white-space:nowrap;">🚧 Sedang Maintenance 🚧</h1>
+                  <p style="color:#9ca3af; font-size:0.85rem; line-height:1.6;">Sistem Monitoring Alker sedang dalam perbaikan.<br>Silakan kembali beberapa saat lagi.</p>
+                </div>
+              </body>
+            </html>
+          `, { 
+            status: 503,
+            headers: { 'Content-Type': 'text/html; charset=utf-8' }
+          });
+        }
+      }
+    }
+  } catch (error) {
+    // Kalau Vercel API error, biarkan aplikasi tetap jalan normal (jangan sampai bikin down)
+    console.error("Gagal cek status maintenance:", error);
+  }
+  // =========================================================================
 
   const cookieVal = req.cookies.get("admin_session")?.value || "";
 
